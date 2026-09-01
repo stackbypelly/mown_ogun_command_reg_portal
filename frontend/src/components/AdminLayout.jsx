@@ -2,6 +2,7 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { LayoutDashboard, Users, FileCheck2, BadgeCheck, ShieldCheck, BarChart3, Download, UserCog, Settings, LogOut, Menu } from 'lucide-react';
 import { useState } from 'react';
 import api from '../lib/api';
+import Logo from '../assets/man-o-war-logor.png';
 
 const navItems = [
   { to: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -34,7 +35,8 @@ const AdminLayout = () => {
     <div className="min-h-screen bg-slate-100">
       <div className="flex">
         <aside className={`fixed inset-y-0 left-0 z-20 w-72 transform border-r border-slate-200 bg-slate-950 p-6 text-slate-200 transition ${mobileOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0`}>
-          <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <img src={Logo} alt="Man O' War logo" className="h-12 w-12 rounded-full border border-slate-200 bg-white p-1 shadow-sm" />
             <div>
               <p className="text-sm font-semibold uppercase tracking-[0.3em] text-[#022969]">Admin</p>
               <h2 className="mt-1 text-xl font-semibold text-white">MOW Portal</h2>

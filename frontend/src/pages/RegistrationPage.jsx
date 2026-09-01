@@ -1,14 +1,16 @@
 import { useState } from 'react';
 import { CheckCircle2, FileText } from 'lucide-react';
 import RegistrationForm from '../components/RegistrationForm';
+import logo from '../assets/man-o-war-logor.png';
 
 const RegistrationPage = () => {
   const [submittedMember, setSubmittedMember] = useState(null);
 
   if (submittedMember) {
     return (
-      <main className="min-h-screen bg-slate-50 px-4 py-16 sm:px-6 lg:px-8">
-        <div className="mx-auto max-w-4xl rounded-3xl border border-emerald-200 bg-white p-8 shadow-sm">
+      <main className="relative min-h-screen overflow-hidden bg-slate-50 px-4 py-16 sm:px-6 lg:px-8">
+        <img src={logo} alt="" aria-hidden="true" className="pointer-events-none absolute inset-0 m-auto h-[min(100vw,900px)] w-[min(100vw,900px)] object-contain opacity-[0.12]" />
+        <div className="relative z-10 mx-auto max-w-4xl rounded-3xl border border-emerald-200 bg-white p-8 shadow-sm">
           <div className="flex items-center gap-3 text-emerald-600">
             <CheckCircle2 size={28} />
             <h1 className="text-3xl font-semibold text-slate-900">Registration Successful</h1>
@@ -43,8 +45,9 @@ const RegistrationPage = () => {
   }
 
   return (
-    <main className="min-h-screen bg-slate-50 px-4 py-16 sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-6xl">
+    <main className="relative min-h-screen overflow-hidden bg-slate-50 px-4 py-16 sm:px-6 lg:px-8">
+      <img src={logo} alt="" aria-hidden="true" className="pointer-events-none absolute inset-0 m-auto h-[min(100vw,900px)] w-[min(100vw,900px)] object-contain opacity-[0.12]" />
+      <div className="relative z-10 mx-auto max-w-6xl">
         <div className="mb-8 space-y-2">
           <p className="text-sm font-semibold uppercase tracking-[0.3em] text-[#022969]">Official Registration</p>
           <h1 className="text-3xl font-semibold text-slate-900">Member Registration Form</h1>

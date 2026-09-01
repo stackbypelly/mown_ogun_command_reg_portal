@@ -28,7 +28,10 @@ const schema = z.object({
   emergencyContactName: z.string().min(1, 'Emergency contact name is required'),
   emergencyContactPhone: z.string().min(1, 'Emergency contact phone is required'),
   emergencyContactRelationship: z.string().min(1, 'Relationship is required'),
-  membershipNumber: z.string().optional(),
+  membershipNumber: z
+    .string()
+    .min(1, 'Membership / Service Number is required')
+    .regex(/^MOWN\/NC\/\d{4,}$/, 'Use the format MOWN/NC/0001'),
   dateJoined: z.string().optional(),
   yearJoined: z.string().optional(),
   areaCommandId: z.string().optional(),
@@ -61,6 +64,7 @@ const schema = z.object({
 const RegistrationForm = ({ onSubmitSuccess, initialData = {} }) => {
   const [step, setStep] = useState(1);
   const [previewImage, setPreviewImage] = useState('');
+  const [photoError, setPhotoError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [commands, setCommands] = useState([]);
@@ -79,6 +83,11 @@ const RegistrationForm = ({ onSubmitSuccess, initialData = {} }) => {
   }, []);
 
   const goNext = async () => {
+    if (step === 1 && !previewImage) {
+      setPhotoError('Passport photograph is required.');
+      return;
+    }
+
     const fieldsByStep = {
       1: ['surname', 'firstName', 'gender', 'dateOfBirth', 'maritalStatus', 'nationality', 'stateOfOrigin', 'lgaOfOrigin', 'placeOfBirth', 'bloodGroup', 'genotype'],
       2: ['phone', 'whatsapp', 'email', 'residentialAddress', 'stateOfResidence', 'lgaOfResidence', 'emergencyContactName', 'emergencyContactPhone', 'emergencyContactRelationship'],
@@ -96,6 +105,7 @@ const RegistrationForm = ({ onSubmitSuccess, initialData = {} }) => {
   const handlePhotoChange = (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
+    setPhotoError('');
     const reader = new FileReader();
     reader.onloadend = () => setPreviewImage(reader.result);
     reader.readAsDataURL(file);
@@ -126,7 +136,7 @@ const RegistrationForm = ({ onSubmitSuccess, initialData = {} }) => {
     <div className="space-y-6">
       <FormSteps currentStep={step} />
       {error && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-6 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+      <form onSubmit={handleSubmit(onSubmit)} className="space-y-6 rounded-3xl border border-slate-200 bg-transparent p-6">
         {step === 1 && (
           <div className="space-y-4">
             <div className="flex items-center justify-between">
@@ -138,10 +148,11 @@ const RegistrationForm = ({ onSubmitSuccess, initialData = {} }) => {
             <div className="grid gap-4 md:grid-cols-2">
               <label className="md:col-span-2 flex flex-col gap-2 text-sm font-medium text-slate-700">
                 Passport Photograph
-                <input type="file" accept="image/png,image/jpeg" onChange={handlePhotoChange} className="rounded-xl border border-slate-300 px-3 py-2" />
+                <input type="file" accept="image/png,image/jpeg" required onChange={handlePhotoChange} className="rounded-xl border border-slate-300 px-3 py-2" />
                 <div className="flex h-32 w-full items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-slate-50">
                   {previewImage ? <img src={previewImage} alt="Preview" className="h-full w-full rounded-2xl object-cover" /> : <ImagePlus className="text-slate-400" size={32} />}
                 </div>
+                {photoError && <span className="text-xs text-red-600">{photoError}</span>}
               </label>
               <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
                 Surname
@@ -292,7 +303,12 @@ const RegistrationForm = ({ onSubmitSuccess, initialData = {} }) => {
             <div className="grid gap-4 md:grid-cols-2">
               <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
                 Membership / Service Number
-                <input {...register('membershipNumber')} className="rounded-xl border border-slate-300 px-3 py-2" />
+                <input
+                  {...register('membershipNumber')}
+                  placeholder="MOWN/NC/0001"
+                  className="rounded-xl border border-slate-300 px-3 py-2"
+                />
+                {errors.membershipNumber && <span className="text-xs text-red-600">{errors.membershipNumber.message}</span>}
               </label>
               <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
                 Date Joined Man O' War

@@ -18,14 +18,17 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 5000;
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret';
+const uploadDir = path.join(__dirname, 'uploads');
+
+fs.mkdirSync(uploadDir, { recursive: true });
 
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, path.join(__dirname, 'uploads')),
-  filename: (req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`),
+  destination: (req, file, cb) => cb(null, uploadDir),
+  filename: (req, file, cb) => cb(null, `${Date.now()}-${file.originalname.replace(/\s+/g, '-')}`),
 });
 
 const upload = multer({
@@ -37,7 +40,7 @@ const upload = multer({
   },
 });
 
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use('/uploads', express.static(uploadDir));
 
 
 // Note: data is persisted in MySQL. Use helpers below to interact with DB.
@@ -47,18 +50,6 @@ const areaCommandsFallback = [
   { id: 'ac-2', name: 'Abeokuta North', status: 'active' },
   { id: 'ac-3', name: 'Odeda', status: 'active' },
 ];
-
-const generateRegistrationId = async () => {
-  try {
-    const res = await query('SELECT COUNT(*) as cnt FROM members');
-    const count = String((res[0]?.cnt || 0) + 1).padStart(6, '0');
-    const year = new Date().getFullYear();
-    return `MOW-OG-${year}-${count}`;
-  } catch (error) {
-    const year = new Date().getFullYear();
-    return `MOW-OG-${year}-${String(Math.floor(Math.random() * 100000)).padStart(6, '0')}`;
-  }
-};
 
 const authMiddleware = (req, res, next) => {
   const header = req.headers.authorization || '';
@@ -126,9 +117,15 @@ app.get('/api/commands', async (req, res) => {
 
 app.post('/api/members', upload.single('passportPhoto'), async (req, res) => {
   const payload = req.body;
+  if (!req.file) {
+    return res.status(400).json({ message: 'Passport photograph is required.' });
+  }
+  const registrationId = payload.membershipNumber?.trim();
+  if (!registrationId) {
+    return res.status(400).json({ message: 'Membership / Service Number is required.' });
+  }
   const filePath = req.file ? `/uploads/${req.file.filename}` : '';
   try {
-    const registrationId = await generateRegistrationId();
     const id = uuidv4();
     const now = new Date();
     const columns = [
@@ -183,6 +180,7 @@ app.post('/api/members', upload.single('passportPhoto'), async (req, res) => {
       'nextOfKinPhone',
       'nextOfKinAddress',
       'additionalInformation',
+      'registrationStatus',
       'createdAt',
       'updatedAt',
     ];
@@ -212,7 +210,7 @@ app.post('/api/members', upload.single('passportPhoto'), async (req, res) => {
       payload.emergencyContactName || null,
       payload.emergencyContactPhone || null,
       payload.emergencyContactRelationship || null,
-      payload.membershipNumber || null,
+      registrationId,
       payload.dateJoined || null,
       payload.yearJoined || null,
       payload.areaCommandId || null,
@@ -239,6 +237,7 @@ app.post('/api/members', upload.single('passportPhoto'), async (req, res) => {
       payload.nextOfKinPhone || null,
       payload.nextOfKinAddress || null,
       payload.additionalInformation || null,
+      payload.registrationStatus || 'Pending',
       now,
       now,
     ];
@@ -369,6 +368,42 @@ app.get('/api/users', authMiddleware, canManage, async (req, res) => {
   }
 });
 
+app.post('/api/users', authMiddleware, async (req, res) => {
+  if (req.user.role !== 'SUPER_ADMIN') {
+    return res.status(403).json({ message: 'Only the Super Admin can create admin accounts.' });
+  }
+
+  const name = req.body.name?.trim();
+  const email = req.body.email?.trim().toLowerCase();
+  const password = req.body.password;
+
+  if (!name || !email || !password) {
+    return res.status(400).json({ message: 'Name, email, and password are required.' });
+  }
+  if (password.length < 8) {
+    return res.status(400).json({ message: 'Password must be at least 8 characters.' });
+  }
+
+  try {
+    const existing = await query('SELECT id FROM users WHERE email = ? LIMIT 1', [email]);
+    if (existing.length > 0) {
+      return res.status(409).json({ message: 'An account with this email already exists.' });
+    }
+
+    const id = uuidv4();
+    const hashedPassword = bcrypt.hashSync(password, 10);
+    await query(
+      'INSERT INTO users (id, name, email, password, role, status) VALUES (?, ?, ?, ?, ?, ?)',
+      [id, name, email, hashedPassword, 'ADMIN', 'active']
+    );
+    const [created] = await query('SELECT id, name, email, role, status, createdAt FROM users WHERE id = ? LIMIT 1', [id]);
+    res.status(201).json(created);
+  } catch (error) {
+    console.error('Create admin user error', error);
+    res.status(500).json({ message: 'Unable to create admin account.' });
+  }
+});
+
 app.get('/api/export', authMiddleware, canManage, async (req, res) => {
   try {
     const rows = await query('SELECT registrationId, surname, firstName, phone, email, registrationStatus, membershipStatus, createdAt FROM members ORDER BY createdAt DESC');
@@ -411,13 +446,37 @@ app.get('/api/settings', authMiddleware, canManage, async (req, res) => {
 
 const ensureSchema = async () => {
   try {
-    await query('ALTER TABLE members ADD COLUMN rejectionReason TEXT');
-    console.log('Applied schema update: added members.rejectionReason column');
-  } catch (error) {
-    if (error.code === 'ER_DUP_FIELDNAME' || error.errno === 1060) {
-      return;
+    const rows = await query("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'members'");
+    const existingColumns = new Set((rows || []).map((row) => row.COLUMN_NAME));
+
+    const updates = [
+      ['passportPhotoPath', 'ALTER TABLE members ADD COLUMN passportPhotoPath VARCHAR(255)'],
+      ['rejectionReason', 'ALTER TABLE members ADD COLUMN rejectionReason TEXT'],
+      ['registrationStatus', 'ALTER TABLE members ADD COLUMN registrationStatus ENUM("Pending", "Approved", "Rejected") DEFAULT "Pending"'],
+    ];
+
+    for (const [label, sql] of updates) {
+      if (existingColumns.has(label)) {
+        continue;
+      }
+
+      try {
+        await query(sql);
+        console.log(`Applied schema update: added members.${label} column`);
+        existingColumns.add(label);
+      } catch (error) {
+        console.error(`Schema migration error for ${label}`, error);
+      }
     }
-    console.error('Schema migration error', error);
+
+    if (!existingColumns.has('registrationStatus')) {
+      await query('ALTER TABLE members ADD COLUMN registrationStatus ENUM("Pending", "Approved", "Rejected") DEFAULT "Pending"');
+    }
+
+    await query('UPDATE members SET registrationStatus = "Pending" WHERE registrationStatus IS NULL');
+    await query('ALTER TABLE members MODIFY COLUMN registrationStatus ENUM("Pending", "Approved", "Rejected") DEFAULT "Pending"');
+  } catch (error) {
+    console.error('Schema validation error', error);
   }
 };
 

@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { Search, Eye, Pencil, CheckCircle2, XCircle, Trash2, X } from 'lucide-react';
+import Swal from 'sweetalert2';
 import api from '../lib/api';
+
+const getPhotoUrl = (photoPath) => (photoPath ? `${api.defaults.baseURL.replace(/\/api\/?$/, '')}${photoPath}` : '');
 
 const MembersPage = () => {
   const [members, setMembers] = useState([]);
@@ -83,8 +86,18 @@ const MembersPage = () => {
   };
 
   const handleReject = async (memberId) => {
-    const reason = window.prompt('Enter rejection reason');
-    if (reason === null) return;
+    const result = await Swal.fire({
+      title: 'Reject member?',
+      input: 'textarea',
+      inputLabel: 'Rejection reason',
+      inputPlaceholder: 'Enter rejection reason',
+      showCancelButton: true,
+      confirmButtonText: 'Reject member',
+      confirmButtonColor: '#dc2626',
+      inputValidator: (value) => (!value?.trim() ? 'A rejection reason is required.' : undefined),
+    });
+    if (!result.isConfirmed) return;
+    const reason = result.value.trim();
 
     setLoadingAction(true);
     setActionError('');
@@ -103,7 +116,16 @@ const MembersPage = () => {
   };
 
   const handleDelete = async (memberId) => {
-    if (!window.confirm('Delete this member permanently?')) return;
+    const result = await Swal.fire({
+      title: 'Delete member permanently?',
+      text: 'This action cannot be undone.',
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Delete member',
+      confirmButtonColor: '#dc2626',
+      reverseButtons: true,
+    });
+    if (!result.isConfirmed) return;
 
     setLoadingAction(true);
     setActionError('');
@@ -191,6 +213,7 @@ const MembersPage = () => {
             <thead className="bg-slate-50 text-slate-600">
               <tr>
                 <th className="px-4 py-3">Registration ID</th>
+                <th className="px-4 py-3">Photo</th>
                 <th className="px-4 py-3">Full Name</th>
                 <th className="px-4 py-3">Phone</th>
                 <th className="px-4 py-3">Status</th>
@@ -201,19 +224,19 @@ const MembersPage = () => {
             <tbody>
               {loadError ? (
                 <tr>
-                  <td className="px-4 py-6 text-center text-rose-700" colSpan={6}>
+                  <td className="px-4 py-6 text-center text-rose-700" colSpan={7}>
                     {loadError}
                   </td>
                 </tr>
               ) : loadingMembers ? (
                 <tr>
-                  <td className="px-4 py-6 text-center text-slate-500" colSpan={6}>
+                  <td className="px-4 py-6 text-center text-slate-500" colSpan={7}>
                     Loading members...
                   </td>
                 </tr>
               ) : filteredMembers.length === 0 ? (
                 <tr>
-                  <td className="px-4 py-6 text-center text-slate-500" colSpan={6}>
+                  <td className="px-4 py-6 text-center text-slate-500" colSpan={7}>
                     No members found for this filter.
                   </td>
                 </tr>
@@ -221,6 +244,11 @@ const MembersPage = () => {
                 filteredMembers.map((member) => (
                   <tr key={member.id} className="border-t border-slate-200">
                     <td className="px-4 py-3 font-semibold text-slate-900">{member.registrationId}</td>
+                    <td className="px-4 py-3">
+                      {member.passportPhotoPath ? (
+                        <img src={getPhotoUrl(member.passportPhotoPath)} alt={`${member.firstName} ${member.surname}`} className="h-12 w-12 rounded-xl object-cover" />
+                      ) : <span className="text-xs text-slate-400">No photo</span>}
+                    </td>
                     <td className="px-4 py-3">{member.firstName} {member.surname}</td>
                     <td className="px-4 py-3">{member.phone}</td>
                     <td className="px-4 py-3">
@@ -270,6 +298,12 @@ const MembersPage = () => {
             </button>
           </div>
           <div className="mt-6 grid gap-4 md:grid-cols-2">
+            <div className="md:col-span-2">
+              <p className="text-sm font-semibold text-slate-500">Passport Photograph</p>
+              {selectedMember.passportPhotoPath ? (
+                <img src={getPhotoUrl(selectedMember.passportPhotoPath)} alt={`${selectedMember.firstName} ${selectedMember.surname}`} className="mt-2 h-40 w-32 rounded-2xl object-cover" />
+              ) : <p className="mt-2 text-slate-500">No photo uploaded</p>}
+            </div>
             <div>
               <p className="text-sm font-semibold text-slate-500">Registration ID</p>
               <p className="mt-2 text-slate-900">{selectedMember.registrationId}</p>
