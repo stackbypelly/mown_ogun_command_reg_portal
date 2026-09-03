@@ -125,7 +125,7 @@ SELECT * FROM (SELECT
   'admin-1' as id,
   'Super Admin' as name,
   'admin@mowogun.gov.ng' as email,
-  '$2a$10$2VrwEHN35e4imvsg3ALUOuvUHJnLo2HlE8bsGTTB4Cdpne0XdOLuK' as password,
+  '$2a$10$VBSxSv5h/042BVwm8Wfo2uMVi80TOxmKqyGlDw1bj.jVYE0q8RmiG' as password,
   'SUPER_ADMIN' as role,
   'active' as status
 ) as new_user

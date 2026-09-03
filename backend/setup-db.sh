@@ -122,7 +122,7 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 
 -- Insert default admin user
 INSERT IGNORE INTO users (id, name, email, password, role, status) 
-VALUES ('admin-1', 'Super Admin', 'admin@mowogun.gov.ng', '$2a$10$8qXrEL1bFXD6YhQmILcXA.fE9YLXyTqk4Vt7N3YcKkJLBvqVPL0Jm', 'SUPER_ADMIN', 'active');
+VALUES ('admin-1', 'Super Admin', 'admin@mowogun.gov.ng', '$2a$10$VBSxSv5h/042BVwm8Wfo2uMVi80TOxmKqyGlDw1bj.jVYE0q8RmiG', 'SUPER_ADMIN', 'active');
 
 -- Insert default area commands
 INSERT IGNORE INTO area_commands (id, name, status) VALUES
