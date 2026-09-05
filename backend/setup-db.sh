@@ -126,9 +126,26 @@ VALUES ('admin-1', 'Super Admin', 'admin@mowogun.gov.ng', '$2a$10$VBSxSv5h/042BV
 
 -- Insert default area commands
 INSERT IGNORE INTO area_commands (id, name, status) VALUES
-('ac-1', 'Abeokuta South', 'active'),
-('ac-2', 'Abeokuta North', 'active'),
-('ac-3', 'Odeda', 'active');
+('Abeokuta South', 'Abeokuta South', 'active'),
+('Abeokuta North', 'Abeokuta North', 'active'),
+('Odeda', 'Odeda', 'active'),
+('Ado-Odo', 'Ado-Odo Ota', 'active'),
+('Ewekoro', 'Ewekoro', 'active'),
+('Ifo', 'Ifo', 'active'),
+('Ijebu East', 'Ijebu East', 'active'),
+('Ijebu North', 'Ijebu North', 'active'),
+('Ijebu North East', 'Ijebu North East', 'active'),
+('Ijebu-Ode', 'Ijebu-Ode', 'active'),
+('Ikenne', 'Ikenne', 'active'),
+('Imeko-Afon', 'Imeko-Afon', 'active'),
+('Ipokia', 'Ipokia', 'active'),
+('Obafemi/Owode', 'Obafemi/Owode', 'active'),
+('Odogbolu', 'Odogbolu', 'active'),
+('Ogun Waterside', 'Ogun Waterside', 'active'),
+('Remo North', 'Remo North', 'active'),
+('Sagamu', 'Sagamu (Shagamu)', 'active'),
+('Yewa North', 'Yewa North (formerly Egbado North)', 'active'),
+('Yewa South', 'Yewa South (formerly Egbado South)', 'active');
 EOF
 
 if [ $? -eq 0 ]; then

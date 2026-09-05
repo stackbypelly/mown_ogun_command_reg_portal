@@ -1,6 +1,8 @@
 import axios from 'axios';
 
-const DEFAULT_API = 'https://mown-ogun-command-reg-portal.onrender.com/api';
+const DEFAULT_API = import.meta.env.DEV
+  ? 'http://localhost:5000/api'
+  : 'https://mown-ogun-command-reg-portal.onrender.com/api';
 const apiBase = import.meta.env.VITE_API_BASE || DEFAULT_API;
 
 const api = axios.create({
