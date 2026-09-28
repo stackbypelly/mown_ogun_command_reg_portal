@@ -8,7 +8,7 @@ import fs from 'fs';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
-import { query, getConnection } from './config/database.js';
+import { collection, connectDatabase } from './config/database.js';
 
 dotenv.config();
 
@@ -43,8 +43,6 @@ const upload = multer({
 app.use('/uploads', express.static(uploadDir));
 
 
-// Note: data is persisted in MySQL. Use helpers below to interact with DB.
-
 const areaCommandsFallback = [
   { id: 'ac-1', name: 'Abeokuta South', status: 'active' },
   { id: 'ac-2', name: 'Abeokuta North', status: 'active' },
@@ -76,8 +74,7 @@ app.get('/api/health', (req, res) => res.json({ ok: true }));
 app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body;
   try {
-    const rows = await query('SELECT * FROM users WHERE email = ? LIMIT 1', [email]);
-    const user = rows && rows[0];
+    const user = await collection('users').findOne({ email });
     if (!user) return res.status(401).json({ message: 'Invalid credentials' });
     const valid = bcrypt.compareSync(password, user.password);
     if (!valid) return res.status(401).json({ message: 'Invalid credentials' });
@@ -91,8 +88,10 @@ app.post('/api/auth/login', async (req, res) => {
 
 app.get('/api/auth/me', authMiddleware, async (req, res) => {
   try {
-    const rows = await query('SELECT id, name, email, role, status, createdAt FROM users WHERE id = ? LIMIT 1', [req.user.id]);
-    const user = rows && rows[0];
+    const user = await collection('users').findOne(
+      { id: req.user.id },
+      { projection: { _id: 0, id: 1, name: 1, email: 1, role: 1, status: 1, createdAt: 1 } }
+    );
     res.json({ user });
   } catch (error) {
     console.error('Me error', error);
@@ -106,8 +105,11 @@ app.post('/api/auth/logout', authMiddleware, (req, res) => {
 
 app.get('/api/commands', async (req, res) => {
   try {
-    const rows = await query('SELECT id, name, status FROM area_commands');
-    if (!rows || rows.length === 0) return res.json(areaCommandsFallback);
+    const rows = await collection('area_commands').find(
+      {},
+      { projection: { _id: 0, id: 1, name: 1, status: 1 } }
+    ).toArray();
+    if (rows.length === 0) return res.json(areaCommandsFallback);
     res.json(rows);
   } catch (error) {
     console.error('Commands error', error);
@@ -184,7 +186,6 @@ app.post('/api/members', upload.single('passportPhoto'), async (req, res) => {
       'createdAt',
       'updatedAt',
     ];
-    const insertSql = `INSERT INTO members (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(',')})`;
     const values = [
       id,
       registrationId,
@@ -241,9 +242,13 @@ app.post('/api/members', upload.single('passportPhoto'), async (req, res) => {
       now,
       now,
     ];
-    await query(insertSql, values);
-    await query('INSERT INTO audit_logs (id, userId, action, entityType, entityId, details) VALUES (?,?,?,?,?,?)', [uuidv4(), null, 'Member registered', 'member', id, JSON.stringify({ registrationId })]);
-    const [created] = await query('SELECT * FROM members WHERE id = ? LIMIT 1', [id]);
+    const member = Object.fromEntries(columns.map((column, index) => [column, values[index]]));
+    await collection('members').insertOne(member);
+    await collection('audit_logs').insertOne({
+      id: uuidv4(), userId: null, action: 'Member registered', entityType: 'member', entityId: id,
+      details: { registrationId }, createdAt: now,
+    });
+    const created = await collection('members').findOne({ id }, { projection: { _id: 0 } });
     res.status(201).json(created);
   } catch (error) {
     console.error('Create member error', error);
@@ -254,19 +259,19 @@ app.post('/api/members', upload.single('passportPhoto'), async (req, res) => {
 app.get('/api/members', authMiddleware, canManage, async (req, res) => {
   const { status, search } = req.query;
   try {
-    let sql = 'SELECT * FROM members WHERE 1=1';
-    const params = [];
+    const filter = {};
     if (status) {
-      sql += ' AND registrationStatus = ?';
-      params.push(status);
+      filter.registrationStatus = status;
     }
     if (search) {
-      sql += ' AND (registrationId LIKE ? OR firstName LIKE ? OR surname LIKE ? OR phone LIKE ? OR email LIKE ?)';
-      const s = `%${search}%`;
-      params.push(s, s, s, s, s);
+      const escapedSearch = String(search).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const matching = { $regex: escapedSearch, $options: 'i' };
+      filter.$or = [
+        { registrationId: matching }, { firstName: matching }, { surname: matching },
+        { phone: matching }, { email: matching },
+      ];
     }
-    sql += ' ORDER BY createdAt DESC LIMIT 100';
-    const rows = await query(sql, params);
+    const rows = await collection('members').find(filter).project({ _id: 0 }).sort({ createdAt: -1 }).limit(100).toArray();
     res.json(rows);
   } catch (error) {
     console.error('List members error', error);
@@ -276,8 +281,7 @@ app.get('/api/members', authMiddleware, canManage, async (req, res) => {
 
 app.get('/api/members/:id', authMiddleware, canManage, async (req, res) => {
   try {
-    const rows = await query('SELECT * FROM members WHERE id = ? LIMIT 1', [req.params.id]);
-    const member = rows && rows[0];
+    const member = await collection('members').findOne({ id: req.params.id }, { projection: { _id: 0 } });
     if (!member) return res.status(404).json({ message: 'Member not found' });
     res.json(member);
   } catch (error) {
@@ -288,20 +292,16 @@ app.get('/api/members/:id', authMiddleware, canManage, async (req, res) => {
 
 app.put('/api/members/:id', authMiddleware, canManage, async (req, res) => {
   try {
-    const fields = req.body;
-    const sets = [];
-    const params = [];
-    Object.keys(fields).forEach((k) => {
-      sets.push(`${k} = ?`);
-      params.push(fields[k]);
+    const fields = Object.fromEntries(Object.entries(req.body).filter(([key]) =>
+      !['_id', 'id', 'createdAt', 'updatedAt'].includes(key) && !key.startsWith('$') && !key.includes('.')
+    ));
+    fields.updatedAt = new Date();
+    await collection('members').updateOne({ id: req.params.id }, { $set: fields });
+    await collection('audit_logs').insertOne({
+      id: uuidv4(), userId: req.user.id, action: 'Updated member', entityType: 'member',
+      entityId: req.params.id, details: fields, createdAt: new Date(),
     });
-    params.push(new Date());
-    const sql = `UPDATE members SET ${sets.join(', ')}, updatedAt = ? WHERE id = ?`;
-    params.push(req.params.id);
-    await query(sql, params);
-    await query('INSERT INTO audit_logs (id, userId, action, entityType, entityId, details) VALUES (?,?,?,?,?,?)', [uuidv4(), req.user.id, 'Updated member', 'member', req.params.id, JSON.stringify(fields)]);
-    const rows = await query('SELECT * FROM members WHERE id = ? LIMIT 1', [req.params.id]);
-    res.json(rows[0]);
+    res.json(await collection('members').findOne({ id: req.params.id }, { projection: { _id: 0 } }));
   } catch (error) {
     console.error('Update member error', error);
     res.status(500).json({ message: 'Server error' });
@@ -311,10 +311,15 @@ app.put('/api/members/:id', authMiddleware, canManage, async (req, res) => {
 app.patch('/api/members/:id/status', authMiddleware, canManage, async (req, res) => {
   try {
     const { status, rejectionReason } = req.body;
-    await query('UPDATE members SET registrationStatus = ?, rejectionReason = ?, updatedAt = ? WHERE id = ?', [status, rejectionReason || '', new Date(), req.params.id]);
-    await query('INSERT INTO audit_logs (id, userId, action, entityType, entityId, details) VALUES (?,?,?,?,?,?)', [uuidv4(), req.user.id, 'Updated status', 'member', req.params.id, JSON.stringify({ status, rejectionReason })]);
-    const rows = await query('SELECT * FROM members WHERE id = ? LIMIT 1', [req.params.id]);
-    res.json(rows[0]);
+    await collection('members').updateOne(
+      { id: req.params.id },
+      { $set: { registrationStatus: status, rejectionReason: rejectionReason || '', updatedAt: new Date() } }
+    );
+    await collection('audit_logs').insertOne({
+      id: uuidv4(), userId: req.user.id, action: 'Updated status', entityType: 'member',
+      entityId: req.params.id, details: { status, rejectionReason }, createdAt: new Date(),
+    });
+    res.json(await collection('members').findOne({ id: req.params.id }, { projection: { _id: 0 } }));
   } catch (error) {
     console.error('Patch status error', error);
     res.status(500).json({ message: 'Server error' });
@@ -323,8 +328,11 @@ app.patch('/api/members/:id/status', authMiddleware, canManage, async (req, res)
 
 app.delete('/api/members/:id', authMiddleware, canManage, async (req, res) => {
   try {
-    await query('DELETE FROM members WHERE id = ?', [req.params.id]);
-    await query('INSERT INTO audit_logs (id, userId, action, entityType, entityId, details) VALUES (?,?,?,?,?,?)', [uuidv4(), req.user.id, 'Deleted member', 'member', req.params.id, JSON.stringify({})]);
+    await collection('members').deleteOne({ id: req.params.id });
+    await collection('audit_logs').insertOne({
+      id: uuidv4(), userId: req.user.id, action: 'Deleted member', entityType: 'member',
+      entityId: req.params.id, details: {}, createdAt: new Date(),
+    });
     res.json({ success: true });
   } catch (error) {
     console.error('Delete member error', error);
@@ -334,7 +342,7 @@ app.delete('/api/members/:id', authMiddleware, canManage, async (req, res) => {
 
 app.get('/api/audit-logs', authMiddleware, canManage, async (req, res) => {
   try {
-    const rows = await query('SELECT * FROM audit_logs ORDER BY createdAt DESC LIMIT 200');
+    const rows = await collection('audit_logs').find({}).project({ _id: 0 }).sort({ createdAt: -1 }).limit(200).toArray();
     res.json(rows);
   } catch (error) {
     console.error('Audit logs error', error);
@@ -344,14 +352,15 @@ app.get('/api/audit-logs', authMiddleware, canManage, async (req, res) => {
 
 app.get('/api/stats', authMiddleware, canManage, async (req, res) => {
   try {
-    const rows = await query(`SELECT 
-      COUNT(*) as total,
-      SUM(CASE WHEN registrationStatus = 'Approved' THEN 1 ELSE 0 END) as approved,
-      SUM(CASE WHEN registrationStatus = 'Pending' THEN 1 ELSE 0 END) as pending,
-      SUM(CASE WHEN registrationStatus = 'Rejected' THEN 1 ELSE 0 END) as rejected,
-      SUM(CASE WHEN membershipStatus = 'Active' THEN 1 ELSE 0 END) as active
-      FROM members`);
-    res.json(rows[0] || { total: 0, approved: 0, pending: 0, rejected: 0, active: 0 });
+    const members = collection('members');
+    const [total, approved, pending, rejected, active] = await Promise.all([
+      members.countDocuments(),
+      members.countDocuments({ registrationStatus: 'Approved' }),
+      members.countDocuments({ registrationStatus: 'Pending' }),
+      members.countDocuments({ registrationStatus: 'Rejected' }),
+      members.countDocuments({ membershipStatus: 'Active' }),
+    ]);
+    res.json({ total, approved, pending, rejected, active });
   } catch (error) {
     console.error('Stats error', error);
     res.status(500).json({ message: 'Server error' });
@@ -360,7 +369,10 @@ app.get('/api/stats', authMiddleware, canManage, async (req, res) => {
 
 app.get('/api/users', authMiddleware, canManage, async (req, res) => {
   try {
-    const rows = await query('SELECT id, name, email, role, status, createdAt FROM users ORDER BY createdAt DESC');
+    const rows = await collection('users').find(
+      {},
+      { projection: { _id: 0, id: 1, name: 1, email: 1, role: 1, status: 1, createdAt: 1 } }
+    ).sort({ createdAt: -1 }).toArray();
     res.json(rows);
   } catch (error) {
     console.error('Users error', error);
@@ -385,18 +397,21 @@ app.post('/api/users', authMiddleware, async (req, res) => {
   }
 
   try {
-    const existing = await query('SELECT id FROM users WHERE email = ? LIMIT 1', [email]);
-    if (existing.length > 0) {
+    const existing = await collection('users').findOne({ email }, { projection: { _id: 0, id: 1 } });
+    if (existing) {
       return res.status(409).json({ message: 'An account with this email already exists.' });
     }
 
     const id = uuidv4();
     const hashedPassword = bcrypt.hashSync(password, 10);
-    await query(
-      'INSERT INTO users (id, name, email, password, role, status) VALUES (?, ?, ?, ?, ?, ?)',
-      [id, name, email, hashedPassword, 'ADMIN', 'active']
+    await collection('users').insertOne({
+      id, name, email, password: hashedPassword, role: 'ADMIN', status: 'active',
+      createdAt: new Date(), updatedAt: new Date(),
+    });
+    const created = await collection('users').findOne(
+      { id },
+      { projection: { _id: 0, id: 1, name: 1, email: 1, role: 1, status: 1, createdAt: 1 } }
     );
-    const [created] = await query('SELECT id, name, email, role, status, createdAt FROM users WHERE id = ? LIMIT 1', [id]);
     res.status(201).json(created);
   } catch (error) {
     console.error('Create admin user error', error);
@@ -406,7 +421,10 @@ app.post('/api/users', authMiddleware, async (req, res) => {
 
 app.get('/api/export', authMiddleware, canManage, async (req, res) => {
   try {
-    const rows = await query('SELECT registrationId, surname, firstName, phone, email, registrationStatus, membershipStatus, createdAt FROM members ORDER BY createdAt DESC');
+    const rows = await collection('members').find(
+      {},
+      { projection: { _id: 0, registrationId: 1, surname: 1, firstName: 1, phone: 1, email: 1, registrationStatus: 1, membershipStatus: 1, createdAt: 1 } }
+    ).sort({ createdAt: -1 }).toArray();
     const headers = ['Registration ID', 'Surname', 'First Name', 'Phone', 'Email', 'Registration Status', 'Membership Status', 'Created At'];
     const csv = [headers.join(',')].concat(
       rows.map((row) => [
@@ -444,42 +462,6 @@ app.get('/api/settings', authMiddleware, canManage, async (req, res) => {
   }
 });
 
-const ensureSchema = async () => {
-  try {
-    const rows = await query("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'members'");
-    const existingColumns = new Set((rows || []).map((row) => row.COLUMN_NAME));
-
-    const updates = [
-      ['passportPhotoPath', 'ALTER TABLE members ADD COLUMN passportPhotoPath VARCHAR(255)'],
-      ['rejectionReason', 'ALTER TABLE members ADD COLUMN rejectionReason TEXT'],
-      ['registrationStatus', 'ALTER TABLE members ADD COLUMN registrationStatus ENUM("Pending", "Approved", "Rejected") DEFAULT "Pending"'],
-    ];
-
-    for (const [label, sql] of updates) {
-      if (existingColumns.has(label)) {
-        continue;
-      }
-
-      try {
-        await query(sql);
-        console.log(`Applied schema update: added members.${label} column`);
-        existingColumns.add(label);
-      } catch (error) {
-        console.error(`Schema migration error for ${label}`, error);
-      }
-    }
-
-    if (!existingColumns.has('registrationStatus')) {
-      await query('ALTER TABLE members ADD COLUMN registrationStatus ENUM("Pending", "Approved", "Rejected") DEFAULT "Pending"');
-    }
-
-    await query('UPDATE members SET registrationStatus = "Pending" WHERE registrationStatus IS NULL');
-    await query('ALTER TABLE members MODIFY COLUMN registrationStatus ENUM("Pending", "Approved", "Rejected") DEFAULT "Pending"');
-  } catch (error) {
-    console.error('Schema validation error', error);
-  }
-};
-
 // Serve frontend production build if available (placed after API routes so /api/* is handled)
 const clientDist = path.join(__dirname, '..', 'frontend', 'dist');
 if (fs.existsSync(clientDist)) {
@@ -490,7 +472,7 @@ if (fs.existsSync(clientDist)) {
 }
 
 const initServer = async () => {
-  await ensureSchema();
+  await connectDatabase();
   app.listen(PORT, () => console.log(`Backend running on port ${PORT}`));
 };
 
