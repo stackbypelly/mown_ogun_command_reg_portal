@@ -11,7 +11,7 @@ const Footer = () => (
       <div>
         <h3 className="text-lg font-semibold text-white">Contact</h3>
         <p className="mt-2 text-sm">Headquarters, Ogun State Command</p>
-        <p className="text-sm">Email: info@mowogun.gov.ng</p>
+        <p className="text-sm">Email: manowarogunstarthq@gmail.com</p>
       </div>
       <div>
         <h3 className="text-lg font-semibold text-white">Support</h3>
